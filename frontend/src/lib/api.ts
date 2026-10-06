@@ -94,6 +94,8 @@ type LaborCostReportParams = {
   third?: LaborCostReportOptionalDimension;
   fourth?: LaborCostReportOptionalDimension;
   sort?: LaborCostReportSort;
+  startDate?: string;
+  endDate?: string;
 };
 
 function dashboardQuery(fiscalYear: number, params: DashboardScopeParams = {}) {
@@ -117,6 +119,8 @@ function laborCostReportQuery(fiscalYear: number, params: LaborCostReportParams)
     fourth: params.fourth ?? "none",
     sort: params.sort ?? "forecast_cost",
   });
+  if (params.startDate) search.set("start_date", params.startDate);
+  if (params.endDate) search.set("end_date", params.endDate);
   return search.toString();
 }
 

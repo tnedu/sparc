@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from io import BytesIO
 
 from openpyxl import Workbook
@@ -67,7 +67,10 @@ def build_labor_cost_report(
     dimensions: list[str],
     sort_metric: str = "forecast_cost",
     user: AuthenticatedUser | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict[str, object]:
+    start_month, end_month = _period_month_bounds(fiscal_year, start_date, end_date)
     normalized_dimensions = normalize_labor_cost_dimensions(*dimensions)
     capabilities = role_capabilities(user.role) if user is not None else {}
     if user is not None and not capabilities.get("can_view_reports", False):
@@ -80,7 +83,8 @@ def build_labor_cost_report(
     source_rows = [
         row
         for row in reported_value_rows(db, fiscal_year)
-        if user is None or can_view_product_office(user, str(row["program_area"]) if row["program_area"] else None)
+        if start_month <= int(row["month_sequence"]) <= end_month
+        and (user is None or can_view_product_office(user, str(row["program_area"]) if row["program_area"] else None))
     ]
     member_ids = {int(row["team_member_id"]) for row in source_rows}
     members = {member.id: member for member in db.scalars(select(TeamMember).where(TeamMember.id.in_(member_ids))).all()} if member_ids else {}
@@ -147,6 +151,8 @@ def build_labor_cost_report(
 
     return {
         "fiscal_year": fiscal_year,
+        "period_start": start_date.isoformat() if start_date else None,
+        "period_end": end_date.isoformat() if end_date else None,
         "dimensions": [{"key": dimension, "label": REPORT_DIMENSIONS[dimension]} for dimension in normalized_dimensions],
         "sort_metric": normalized_sort_metric,
         "rows": rows,
@@ -168,15 +174,26 @@ def build_labor_cost_report_workbook(
     dimensions: list[str],
     sort_metric: str = "forecast_cost",
     user: AuthenticatedUser | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> BytesIO:
-    report = build_labor_cost_report(db, fiscal_year, dimensions=dimensions, sort_metric=sort_metric, user=user)
+    report = build_labor_cost_report(
+        db,
+        fiscal_year,
+        dimensions=dimensions,
+        sort_metric=sort_metric,
+        user=user,
+        start_date=start_date,
+        end_date=end_date,
+    )
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "Labor Cost"
 
     dimensions_label = " > ".join(str(dimension["label"]) for dimension in report["dimensions"])
     worksheet.append(["SPARC Labor Cost Report"])
-    worksheet.append([f"FY{fiscal_year}", f"Dimensions: {dimensions_label}", f"Sorted by: {_metric_label(str(report['sort_metric']))}"])
+    period_label = f"{report['period_start']} through {report['period_end']} (fiscal months)" if report["period_start"] else f"FY{fiscal_year}"
+    worksheet.append([period_label, f"Dimensions: {dimensions_label}", f"Sorted by: {_metric_label(str(report['sort_metric']))}"])
     worksheet.append([])
 
     headers = [str(dimension["label"]) for dimension in report["dimensions"]]
@@ -258,6 +275,24 @@ def _dimension_sort_labels(row: dict[str, object]) -> list[str]:
     if not isinstance(values, list):
         return []
     return [str(value.get("label") or "").casefold() for value in values if isinstance(value, dict)]
+
+
+def _period_month_bounds(fiscal_year: int, start_date: date | None, end_date: date | None) -> tuple[int, int]:
+    if (start_date is None) != (end_date is None):
+        raise ValueError("Both start date and end date are required for a custom report period")
+    if start_date is None or end_date is None:
+        return 1, 12
+    fiscal_start = date(fiscal_year - 1, 7, 1)
+    fiscal_end = date(fiscal_year, 6, 30)
+    if start_date > end_date:
+        raise ValueError("Start date must be on or before end date")
+    if start_date < fiscal_start or end_date > fiscal_end:
+        raise ValueError(f"Dates must fall within FY{fiscal_year} ({fiscal_start.isoformat()} through {fiscal_end.isoformat()})")
+    return _fiscal_month_sequence(start_date), _fiscal_month_sequence(end_date)
+
+
+def _fiscal_month_sequence(value: date) -> int:
+    return ((value.month - 7) % 12) + 1
 
 
 def _style_labor_cost_sheet(worksheet, column_count: int) -> None:

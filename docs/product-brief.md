@@ -415,6 +415,7 @@ Rules:
 - Cost values are calculated from Forecast or Actual hours multiplied by Team Member bill rate.
 - Product and Person values link to their detail pages.
 - Reports must be viewable in SPARC and exportable as `.xlsx`.
+- XLSX export offers the full Fiscal Year, one Fiscal Month, or a custom date range. Report values are stored by Fiscal Month, so a custom date range includes each touched month in full and must disclose this in the period selector and workbook.
 - Export filenames should use the report name and current date in `yyyymmdd` format, for example `labor-cost-report-20260702.xlsx`.
 
 ## Backend Requirements

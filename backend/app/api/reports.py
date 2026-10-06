@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -21,12 +21,22 @@ def get_labor_cost_report(
     third: str | None = Query(default="role"),
     fourth: str | None = Query(default="employment_type"),
     sort: str = Query(default="forecast_cost"),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
     user: AuthenticatedUser = Depends(require_reports_access),
 ) -> dict[str, object]:
     try:
         dimensions = normalize_labor_cost_dimensions(lead, second, third, fourth)
-        return build_labor_cost_report(db, fiscal_year, dimensions=dimensions, sort_metric=sort, user=user)
+        return build_labor_cost_report(
+            db,
+            fiscal_year,
+            dimensions=dimensions,
+            sort_metric=sort,
+            user=user,
+            start_date=start_date,
+            end_date=end_date,
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
@@ -41,17 +51,28 @@ def export_labor_cost_report(
     third: str | None = Query(default="role"),
     fourth: str | None = Query(default="employment_type"),
     sort: str = Query(default="forecast_cost"),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
     user: AuthenticatedUser = Depends(require_reports_access),
 ) -> StreamingResponse:
     try:
         dimensions = normalize_labor_cost_dimensions(lead, second, third, fourth)
-        workbook = build_labor_cost_report_workbook(db, fiscal_year, dimensions=dimensions, sort_metric=sort, user=user)
+        workbook = build_labor_cost_report_workbook(
+            db,
+            fiscal_year,
+            dimensions=dimensions,
+            sort_metric=sort,
+            user=user,
+            start_date=start_date,
+            end_date=end_date,
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
         raise bad_request(str(exc)) from exc
-    filename = f"labor-cost-report-{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+    period = f"-{start_date.isoformat()}-to-{end_date.isoformat()}" if start_date and end_date else f"-FY{fiscal_year}"
+    filename = f"labor-cost-report{period}-{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
     return StreamingResponse(
         workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
